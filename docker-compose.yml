@@ -5,11 +5,15 @@ services:
   broker:
     build: .
     container_name: broker_central
-    command: go run broker/main.go
+    # El cambio clave: se compila y luego se ejecuta con 'exec'
+    command: sh -c "go build -o /tmp/app_broker broker/main.go && exec /tmp/app_broker"
     network_mode: "host"
     profiles: ["vm1"]
+    stop_signal: SIGINT
+    volumes:
+      - .:/app
 
- # ==========================================
+  # ==========================================
   # MÁQUINA VIRTUAL 2 (MV2)
   # ==========================================
   productor_dataclub:
@@ -39,6 +43,7 @@ services:
     command: go run nodo_db/main.go -nombre="DB3" -puerto=":50054"
     network_mode: "host"
     profiles: ["vm2"]
+
   # ==========================================
   # MÁQUINA VIRTUAL 3 (MV3)
   # ==========================================
@@ -48,6 +53,17 @@ services:
     command: go run consumidor/main.go -nombre="Cliente_A" -pago="credito"
     network_mode: "host"
     profiles: ["vm3"]
+    volumes:
+      - .:/app
+
+  consumidor_b:
+    build: .
+    container_name: consumidor_b
+    command: go run consumidor/main.go -nombre="Cliente_B" -pago="debito"
+    network_mode: "host"
+    profiles: ["vm3"]
+    volumes:
+      - .:/app
 
   db2:
     build: .

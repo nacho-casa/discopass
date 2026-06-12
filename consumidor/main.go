@@ -18,7 +18,7 @@ import (
 
 func main() {
 	// Parámetros por consola para crear distintos clientes
-	nombreUsuario := flag.String("nombre", "Cliente A", "Nombre del usuario")
+	nombreUsuario := flag.String("nombre", "Cliente_A", "Nombre del usuario")
 	medioPago := flag.String("pago", "debito", "Medio de pago: debito o credito")
 	flag.Parse()
 
@@ -42,59 +42,103 @@ func main() {
 	}
 	log.Printf("[%s] Registrado en el sistema.\n", *nombreUsuario)
 
-	// Darle un par de segundos para asegurar que haya eventos publicados
+	// Darle un par de segundos para asegurar que haya eventos publicados por las discotecas
 	time.Sleep(3 * time.Second)
 
-	// 3. Consulta de Eventos Disponibles (Fase 4)
-	log.Printf("[%s] Solicitando cartelera de eventos...\n", *nombreUsuario)
-	ctxCartelera, cancelCartelera := context.WithTimeout(context.Background(), 5*time.Second)
-	resCartelera, err := client.GetAvailableEvents(ctxCartelera, &pb.EmptyRequest{})
-	cancelCartelera()
+	// CICLO DE COMPRAS MULTIPLES (Intentará comprar 3 veces en eventos distintos)
+	intentosDeCompra := 3
+	eventosComprados := make(map[string]bool) // Memoria para no repetir compras
 
-	if err != nil || len(resCartelera.GetEvents()) == 0 {
-		log.Fatalf("[%s] No hay eventos disponibles en este momento.\n", *nombreUsuario)
-	}
+	for i := 1; i <= intentosDeCompra; i++ {
+		log.Printf("\n[%s] --- Iniciando intento de compra %d de %d ---", *nombreUsuario, i, intentosDeCompra)
 
-	// 4. Selección de Evento Aleatorio
-	eventos := resCartelera.GetEvents()
-	eventoElegido := eventos[rand.Intn(len(eventos))]
-	log.Printf("[%s] Intentando comprar entrada para: %s (Precio: $%d, Stock: %d)\n",
-		*nombreUsuario, eventoElegido.GetNombreEvento(), eventoElegido.GetPrecio(), eventoElegido.GetStock())
+		// 3. Consulta de Eventos Disponibles (Fase 4)
+		ctxCartelera, cancelCartelera := context.WithTimeout(context.Background(), 5*time.Second)
+		resCartelera, err := client.GetAvailableEvents(ctxCartelera, &pb.EmptyRequest{})
+		cancelCartelera()
 
-	// 5. Solicitud de Compra
-	ctxCompra, cancelCompra := context.WithTimeout(context.Background(), 5*time.Second)
-	resCompra, err := client.BuyTicket(ctxCompra, &pb.BuyRequest{
-		UsuarioId: *nombreUsuario,
-		EventoId:  eventoElegido.GetEventoId(),
-		MedioPago: *medioPago,
-	})
-	cancelCompra()
-
-	if err != nil {
-		log.Fatalf("[%s] Error de comunicación al comprar: %v\n", *nombreUsuario, err)
-	}
-
-	// 6. Recepción de Ticket y Almacenamiento Local (CSV)
-	if resCompra.GetSuccess() {
-		ticketId := resCompra.GetTicketId()
-		log.Printf("[%s] ¡Compra EXITOSA! Ticket ID: %s\n", *nombreUsuario, ticketId)
-
-		// Guardar en archivo CSV propio
-		nombreArchivo := fmt.Sprintf("%s.csv", *nombreUsuario)
-		archivo, err := os.OpenFile(nombreArchivo, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			log.Fatalf("Error al abrir archivo CSV: %v\n", err)
+		if err != nil || len(resCartelera.GetEvents()) == 0 {
+			log.Printf("[%s] No hay eventos disponibles en este momento. Deteniendo compras.\n", *nombreUsuario)
+			break // Salir del ciclo si ya no hay stock general
 		}
-		defer archivo.Close()
 
-		escritorCSV := csv.NewWriter(archivo)
-		// Si es un archivo nuevo, podríamos escribir los encabezados, pero escribiremos directamente los datos
-		datosTicket := []string{ticketId, eventoElegido.GetEventoId(), eventoElegido.GetNombreEvento(), time.Now().Format(time.RFC3339)}
-		escritorCSV.Write(datosTicket)
-		escritorCSV.Flush()
+		eventos := resCartelera.GetEvents()
 
-		log.Printf("[%s] Ticket guardado en %s\n", *nombreUsuario, nombreArchivo)
-	} else {
-		log.Printf("[%s] Compra RECHAZADA: %s\n", *nombreUsuario, resCompra.GetMessage())
+		// Filtrar la cartelera para dejar solo los eventos que NO ha comprado antes
+		var eventosDisponibles []*pb.Event
+		for _, ev := range eventos {
+			if !eventosComprados[ev.GetEventoId()] {
+				eventosDisponibles = append(eventosDisponibles, ev)
+			}
+		}
+
+		// Si ya compró entradas para todos los eventos publicados, termina el ciclo
+		if len(eventosDisponibles) == 0 {
+			log.Printf("[%s] Ya se compraron entradas para todos los eventos disponibles. Finalizando compras.\n", *nombreUsuario)
+			break
+		}
+
+		// 4. Selección de Evento Aleatorio (solo entre los que no ha comprado)
+		eventoElegido := eventosDisponibles[rand.Intn(len(eventosDisponibles))]
+		log.Printf("[%s] Intentando comprar entrada para: %s (Precio: $%d, Stock: %d)\n",
+			*nombreUsuario, eventoElegido.GetNombreEvento(), eventoElegido.GetPrecio(), eventoElegido.GetStock())
+
+		// 5. Solicitud de Compra
+		ctxCompra, cancelCompra := context.WithTimeout(context.Background(), 5*time.Second)
+		resCompra, err := client.BuyTicket(ctxCompra, &pb.BuyRequest{
+			UsuarioId: *nombreUsuario,
+			EventoId:  eventoElegido.GetEventoId(),
+			MedioPago: *medioPago,
+		})
+		cancelCompra()
+
+		if err != nil {
+			log.Printf("[%s] Error de comunicación al comprar: %v\n", *nombreUsuario, err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// 6. Recepción de Ticket y Almacenamiento Local (CSV)
+		if resCompra.GetSuccess() {
+			ticketId := resCompra.GetTicketId()
+			log.Printf("[%s] ¡Compra EXITOSA! Ticket ID: %s\n", *nombreUsuario, ticketId)
+
+			// Registrar el evento como comprado para no volver a elegirlo
+			eventosComprados[eventoElegido.GetEventoId()] = true
+
+			// Guardar en archivo CSV propio
+			nombreArchivo := fmt.Sprintf("%s.csv", *nombreUsuario)
+
+			// Verificamos si el archivo existe para escribir la cabecera
+			info, errStat := os.Stat(nombreArchivo)
+
+			archivo, err := os.OpenFile(nombreArchivo, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				log.Fatalf("Error al abrir archivo CSV: %v\n", err)
+			}
+
+			escritorCSV := csv.NewWriter(archivo)
+
+			// Escribimos la cabecera si el archivo es nuevo
+			if os.IsNotExist(errStat) || info.Size() == 0 {
+				escritorCSV.Write([]string{"Ticket_ID", "Evento_ID", "Nombre_Evento", "Fecha_Hora"})
+			}
+
+			datosTicket := []string{ticketId, eventoElegido.GetEventoId(), eventoElegido.GetNombreEvento(), time.Now().Format(time.RFC3339)}
+			escritorCSV.Write(datosTicket)
+			escritorCSV.Flush()
+
+			// Cerramos el archivo explícitamente en cada iteración
+			archivo.Close()
+
+			log.Printf("[%s] Ticket guardado en %s\n", *nombreUsuario, nombreArchivo)
+		} else {
+			log.Printf("[%s] Compra RECHAZADA: %s\n", *nombreUsuario, resCompra.GetMessage())
+		}
+
+		// Pausa de 2 segundos antes de intentar comprar de nuevo
+		time.Sleep(2 * time.Second)
 	}
+
+	log.Printf("[%s] Ha finalizado su sesión de compras.\n", *nombreUsuario)
 }
