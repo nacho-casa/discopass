@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"math/rand"
 	"net"
+	"os"
 	"time"
 
 	pb "discopass/pb"
@@ -17,67 +19,75 @@ type bankServer struct {
 	pb.UnimplementedBankServiceServer
 }
 
-// ProcessPayment implementa la lógica estocástica del Banco USM
 func (s *bankServer) ProcessPayment(ctx context.Context, req *pb.PaymentRequest) (*pb.PaymentResponse, error) {
-	// Generador de números aleatorios
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	// Refrescar la semilla en cada llamada para mayor aleatoriedad
+	rand.Seed(time.Now().UnixNano())
 
-	probabilidadAprobacion := 80
+	probabilidad := 80
 	if req.GetMedioPago() == "credito" {
-		probabilidadAprobacion = 90
+		probabilidad = 90
 	}
 
-	// rng.Intn(100) genera un número entre 0 y 99
-	aprobado := rng.Intn(100) < probabilidadAprobacion
+	aprobado := rand.Intn(100) < probabilidad
 
-	resultadoLog := "Rechazado (Fondos insuficientes)"
+	resultado := "Rechazado"
 	if aprobado {
-		resultadoLog = "Aprobado"
+		resultado = "Aprobado"
 	}
 
-	// Registro detallado exigido por el laboratorio
 	log.Printf("Operación: Usuario=%s | Monto=$%d | Medio=%s | Resultado: %s\n",
-		req.GetUsuarioId(), req.GetMonto(), req.GetMedioPago(), resultadoLog)
+		req.GetUsuarioId(), req.GetMonto(), req.GetMedioPago(), resultado)
 
 	return &pb.PaymentResponse{Approved: aprobado}, nil
 }
 
 func main() {
-	// Puerto asignado para el Banco
-	puertoLocal := ":50055"
-	lis, err := net.Listen("tcp", puertoLocal)
+	puerto := flag.String("puerto", ":50055", "Puerto del Banco USM")
+	flag.Parse()
+
+	lis, err := net.Listen("tcp", *puerto)
 	if err != nil {
-		log.Fatalf("Error al escuchar en el puerto %s: %v\n", puertoLocal, err)
+		log.Fatalf("Error al escuchar en %s: %v", *puerto, err)
 	}
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterBankServiceServer(grpcServer, &bankServer{})
 
-	// Ejecutar servidor en segundo plano
 	go func() {
-		log.Printf("Banco USM escuchando en el puerto %s...\n", puertoLocal)
+		log.Printf("Banco USM escuchando en el puerto %s...\n", *puerto)
 		if err := grpcServer.Serve(lis); err != nil {
-			log.Fatalf("Error en el servidor del Banco: %v\n", err)
+			log.Fatalf("Error en servidor Banco: %v", err)
 		}
 	}()
 
-	// Registrar el Banco en el Broker Central
-	conn, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	time.Sleep(1 * time.Second)
+
+	// Leer IP del Broker desde las variables de entorno
+	brokerHost := os.Getenv("BROKER_HOST")
+	if brokerHost == "" {
+		brokerHost = "localhost:50051"
+	}
+
+	conn, err := grpc.NewClient(brokerHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("No se pudo conectar al Broker: %v", err)
+		log.Fatalf("No se pudo conectar al Broker en %s: %v", brokerHost, err)
 	}
 	defer conn.Close()
 
 	client := pb.NewBrokerServiceClient(conn)
-	_, err = client.RegisterEntity(context.Background(), &pb.RegisterRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = client.RegisterEntity(ctx, &pb.RegisterRequest{
 		EntityId:   "Banco USM",
 		EntityType: "BANK",
 	})
+
 	if err != nil {
-		log.Fatalf("Error al registrar el Banco: %v", err)
+		log.Fatalf("Error al registrar el Banco en el Broker: %v", err)
 	}
 	log.Println("Banco USM registrado exitosamente en el Broker.")
 
-	// Mantener el proceso vivo
+	// Mantiene el contenedor vivo escuchando peticiones
 	select {}
 }

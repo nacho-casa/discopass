@@ -105,7 +105,7 @@ message SyncResponse {
   map<string, bytes> data = 1; 
 }
 
-// NUEVO: Mensajes para el Historial
+
 message HistoryRequest {
   string usuario_id = 1;
 }

@@ -64,12 +64,9 @@ func main() {
 	var catalogoCompleto []EventoJSON
 	json.Unmarshal(byteValue, &catalogoCompleto)
 
-	// =====================================================================
-	// NUEVA LÓGICA DE FILTRADO
-	// =====================================================================
 	var miCatalogo []EventoJSON
 	for _, ev := range catalogoCompleto {
-		// Solo guardamos los eventos que pertenezcan a esta discoteca en particular
+
 		if ev.Discoteca == *nombreDiscoteca {
 			miCatalogo = append(miCatalogo, ev)
 		}
@@ -89,13 +86,13 @@ func main() {
 	log.Printf("[%s] Iniciando transmisión continua...\n", *nombreDiscoteca)
 	// Bucle infinito para mantener la emisión continua exigida en la pauta
 	for {
-		// Iteramos ÚNICAMENTE sobre el catálogo filtrado
+
 		for _, eventoSeleccionado := range miCatalogo {
 			nuevoEventoID := fmt.Sprintf("%s-%d", eventoSeleccionado.EventoID, time.Now().UnixNano())
 
 			req := &pb.Event{
 				EventoId:         nuevoEventoID,
-				Discoteca:        eventoSeleccionado.Discoteca, // Ahora respeta la discoteca original (que es la misma del -nombre)
+				Discoteca:        eventoSeleccionado.Discoteca,
 				NombreEvento:     eventoSeleccionado.NombreEvento,
 				Categoria:        eventoSeleccionado.Categoria,
 				Comuna:           eventoSeleccionado.Comuna,
@@ -117,7 +114,6 @@ func main() {
 				log.Printf("[%s] Evento rechazado: %s\n", *nombreDiscoteca, res.GetMessage())
 			}
 
-			// Pausa aleatoria de 30 a 40 segundos exigida
 			tiempoEspera := time.Duration(rand.Intn(11)+30) * time.Second
 			log.Printf("[%s] Esperando %v antes de publicar el siguiente evento...\n", *nombreDiscoteca, tiempoEspera)
 			time.Sleep(tiempoEspera)

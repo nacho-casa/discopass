@@ -79,16 +79,30 @@ func (s *dbServer) ReadHistory(ctx context.Context, req *pb.HistoryRequest) (*pb
 	return &pb.HistoryResponse{Tickets: ticketsUsuario}, nil
 }
 
-func (s *dbServer) recoverData(miNombre string, miPuerto string) {
-	puertosConocidos := []string{":50052", ":50053", ":50054"}
+func (s *dbServer) recoverData(miNombre string) {
+	nodos := map[string]string{
+		"DB1": os.Getenv("DB1_HOST"),
+		"DB2": os.Getenv("DB2_HOST"),
+		"DB3": os.Getenv("DB3_HOST"),
+	}
 
-	for _, puerto := range puertosConocidos {
-		if puerto == miPuerto {
-			continue
+	if nodos["DB1"] == "" {
+		nodos["DB1"] = "localhost:50052"
+	}
+	if nodos["DB2"] == "" {
+		nodos["DB2"] = "localhost:50053"
+	}
+	if nodos["DB3"] == "" {
+		nodos["DB3"] = "localhost:50054"
+	}
+
+	for nombreNodo, host := range nodos {
+		if nombreNodo == miNombre {
+			continue // Evita intentar conectarse consigo mismo
 		}
 
-		log.Printf("Intentando conectar con posible nodo en %s para recuperar datos...\n", puerto)
-		conn, err := grpc.NewClient("localhost"+puerto, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		log.Printf("Intentando conectar con posible nodo %s en %s para recuperar datos...\n", nombreNodo, host)
+		conn, err := grpc.NewClient(host, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			continue
 		}
@@ -107,7 +121,7 @@ func (s *dbServer) recoverData(miNombre string, miPuerto string) {
 			cantidad := len(s.data)
 			s.mu.Unlock()
 
-			log.Printf("✅ ¡SINCRONIZACIÓN EXITOSA! Datos recuperados desde el puerto %s. Total registros: %d\n", puerto, cantidad)
+			log.Printf("¡SINCRONIZACIÓN EXITOSA! Datos recuperados desde el puerto %s. Total registros: %d\n", host, cantidad)
 			return
 		}
 	}
@@ -138,7 +152,7 @@ func main() {
 	}()
 
 	time.Sleep(2 * time.Second)
-	dbNode.recoverData(*nombreNodo, *puertoLocal)
+	dbNode.recoverData(*nombreNodo)
 
 	brokerHost := os.Getenv("BROKER_HOST")
 	if brokerHost == "" {

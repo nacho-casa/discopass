@@ -73,29 +73,45 @@ func (s *server) RegisterEntity(ctx context.Context, req *pb.RegisterRequest) (*
 	log.Printf("Entidad registrada: %s (Tipo: %s)\n", id, tipo)
 
 	if tipo == "DB_NODE" {
-		puerto := ":50052"
-		if id == "DB2" {
-			puerto = ":50053"
+		host := ""
+		if id == "DB1" {
+			host = os.Getenv("DB1_HOST")
+			if host == "" {
+				host = "localhost:50052"
+			}
+		} else if id == "DB2" {
+			host = os.Getenv("DB2_HOST")
+			if host == "" {
+				host = "localhost:50053"
+			}
 		} else if id == "DB3" {
-			puerto = ":50054"
+			host = os.Getenv("DB3_HOST")
+			if host == "" {
+				host = "localhost:50054"
+			}
 		}
-		conn, err := grpc.NewClient("localhost"+puerto, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+		conn, err := grpc.NewClient(host, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			s.dbClients[id] = pb.NewDatabaseServiceClient(conn)
-			// Inicializar stats del nodo
 			if _, existe := s.statsNodos[id]; !existe {
 				s.statsNodos[id] = &statsNodo{}
 			}
-			log.Printf("Broker conectado exitosamente a %s en %s\n", id, puerto)
+			log.Printf("Broker conectado exitosamente a %s en %s\n", id, host)
 			s.registroFallos = append(s.registroFallos, fmt.Sprintf("[SISTEMA] Nodo %s (re)integrado a la red de bases de datos.", id))
 		}
 	}
 
 	if tipo == "BANK" {
-		conn, err := grpc.NewClient("localhost:50055", grpc.WithTransportCredentials(insecure.NewCredentials()))
+		host := os.Getenv("BANK_HOST")
+		if host == "" {
+			host = "localhost:50055"
+		}
+
+		conn, err := grpc.NewClient(host, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			s.bankClient = pb.NewBankServiceClient(conn)
-			log.Printf("Broker conectado exitosamente al Banco USM en :50055\n")
+			log.Printf("Broker conectado exitosamente al Banco USM en %s\n", host)
 		}
 	}
 
@@ -169,7 +185,6 @@ func (s *server) PublishEvent(ctx context.Context, req *pb.Event) (*pb.PublishRe
 	s.statsDiscotecas[disco].enviados++
 	s.mu.Unlock()
 
-	// Validación de datos inválidos exigida por pauta
 	if !validCategories[req.GetCategoria()] {
 		s.mu.Lock()
 		s.statsDiscotecas[disco].rechazados++

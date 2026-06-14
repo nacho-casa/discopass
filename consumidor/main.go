@@ -44,12 +44,8 @@ func main() {
 	}
 	log.Printf("[%s] Registrado en el sistema.\n", *nombreUsuario)
 
-	// Memoria para evitar compras duplicadas (Exigencia de la pauta)
 	eventosComprados := make(map[string]bool)
 
-	// =========================================================================
-	// RECUPERACIÓN TRAS CAÍDA (Viñeta 7: Solo al reintegrarse)
-	// =========================================================================
 	log.Printf("[%s] Consultando historial (R=2) por si es una reintegración tras caída...", *nombreUsuario)
 	ctxHist, cancelHist := context.WithTimeout(context.Background(), 5*time.Second)
 	resHist, errHist := client.GetUserHistory(ctxHist, &pb.HistoryRequest{UsuarioId: *nombreUsuario})
@@ -58,7 +54,7 @@ func main() {
 	if errHist == nil {
 		ticketsRecuperados := resHist.GetTickets()
 		if len(ticketsRecuperados) > 0 {
-			log.Printf("[%s] ⚠️ REINTEGRACIÓN DETECTADA: Se recuperaron %d compras del historial.", *nombreUsuario, len(ticketsRecuperados))
+			log.Printf("[%s]  REINTEGRACIÓN DETECTADA: Se recuperaron %d compras del historial.", *nombreUsuario, len(ticketsRecuperados))
 			for _, t := range ticketsRecuperados {
 				eventosComprados[t.GetEventoId()] = true // Se anota para no duplicar compra
 				log.Printf("      -> Ticket recuperado: %s (Evento: %s)", t.GetTicketId(), t.GetEventoId())
@@ -89,7 +85,7 @@ func main() {
 		eventos := resCartelera.GetEvents()
 		var eventosDisponibles []*pb.Event
 		for _, ev := range eventos {
-			// Filtramos los eventos que ya comprobamos en el historial o en ciclos anteriores
+
 			if !eventosComprados[ev.GetEventoId()] {
 				eventosDisponibles = append(eventosDisponibles, ev)
 			}

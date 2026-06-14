@@ -1,26 +1,32 @@
 services:
   # ==========================================
-  # MÁQUINA VIRTUAL 1 (MV1)
+  # MÁQUINA VIRTUAL 1 (MV1 - Broker)
   # ==========================================
   broker:
     build: .
     container_name: broker_central
-    # El cambio clave: se compila y luego se ejecuta con 'exec'
     command: sh -c "go build -o /tmp/app_broker broker/main.go && exec /tmp/app_broker"
     network_mode: "host"
     profiles: ["vm1"]
     stop_signal: SIGINT
+    environment:
+      - BANK_HOST=10.35.168.90:50055
+      - DB1_HOST=10.35.168.90:50052
+      - DB2_HOST=10.35.168.89:50053
+      - DB3_HOST=10.35.168.88:50054
     volumes:
       - .:/app
 
   # ==========================================
-  # MÁQUINA VIRTUAL 2 (MV2)
+  # MÁQUINA VIRTUAL 2 (MV2 - Productores y DB3)
   # ==========================================
   productor_dataclub:
     build: .
     container_name: productor_dataclub
     command: go run productor/main.go -nombre="DataClub" -catalogo="catalogo_eventos_30.json"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
     profiles: ["vm2"]
 
   productor_dockers:
@@ -28,6 +34,8 @@ services:
     container_name: productor_dockers
     command: go run productor/main.go -nombre="Dockers Night" -catalogo="catalogo_eventos_36.json"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
     profiles: ["vm2"]
 
   productor_golounge:
@@ -35,13 +43,17 @@ services:
     container_name: productor_golounge
     command: go run productor/main.go -nombre="GoLounge" -catalogo="catalogo_eventos_40.json"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
     profiles: ["vm2"]
 
-  productor_georgie:
+  productor_georgiehouse:
     build: .
-    container_name: productor_georgie
+    container_name: productor_georgiehouse
     command: go run productor/main.go -nombre="GeorgieHouse" -catalogo="catalogo_eventos_40.json"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
     profiles: ["vm2"]
 
   db3:
@@ -49,16 +61,23 @@ services:
     container_name: nodo_db3
     command: go run nodo_db/main.go -nombre="DB3" -puerto=":50054"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
+      - DB1_HOST=10.35.168.90:50052
+      - DB2_HOST=10.35.168.89:50053
+      - DB3_HOST=10.35.168.88:50054
     profiles: ["vm2"]
 
   # ==========================================
-  # MÁQUINA VIRTUAL 3 (MV3)
+  # MÁQUINA VIRTUAL 3 (MV3 - Consumidores y DB2)
   # ==========================================
   consumidor_a:
     build: .
     container_name: consumidor_a
     command: go run consumidor/main.go -nombre="Cliente_A" -pago="credito"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
     profiles: ["vm3"]
     volumes:
       - .:/app
@@ -68,6 +87,8 @@ services:
     container_name: consumidor_b
     command: go run consumidor/main.go -nombre="Cliente_B" -pago="debito"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
     profiles: ["vm3"]
     volumes:
       - .:/app
@@ -77,16 +98,23 @@ services:
     container_name: nodo_db2
     command: go run nodo_db/main.go -nombre="DB2" -puerto=":50053"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
+      - DB1_HOST=10.35.168.90:50052
+      - DB2_HOST=10.35.168.89:50053
+      - DB3_HOST=10.35.168.88:50054
     profiles: ["vm3"]
 
   # ==========================================
-  # MÁQUINA VIRTUAL 4 (MV4)
+  # MÁQUINA VIRTUAL 4 (MV4 - Banco y DB1)
   # ==========================================
   banco:
     build: .
     container_name: banco_usm
     command: go run banco/main.go
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
     profiles: ["vm4"]
 
   db1:
@@ -94,6 +122,9 @@ services:
     container_name: nodo_db1
     command: go run nodo_db/main.go -nombre="DB1" -puerto=":50052"
     network_mode: "host"
+    environment:
+      - BROKER_HOST=10.35.168.87:50051
+      - DB1_HOST=10.35.168.90:50052
+      - DB2_HOST=10.35.168.89:50053
+      - DB3_HOST=10.35.168.88:50054
     profiles: ["vm4"]
-
-   
