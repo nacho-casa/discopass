@@ -7,7 +7,6 @@ services:
     container_name: broker_central
     command: sh -c "go build -o /tmp/app_broker broker/main.go && exec /tmp/app_broker"
     network_mode: "host"
-    profiles: ["vm1"]
     stop_signal: SIGINT
     environment:
       - BANK_HOST=10.35.168.90:50055
@@ -27,7 +26,6 @@ services:
     network_mode: "host"
     environment:
       - BROKER_HOST=10.35.168.87:50051
-    profiles: ["vm2"]
 
   productor_dockers:
     build: .
@@ -36,7 +34,6 @@ services:
     network_mode: "host"
     environment:
       - BROKER_HOST=10.35.168.87:50051
-    profiles: ["vm2"]
 
   productor_golounge:
     build: .
@@ -45,7 +42,6 @@ services:
     network_mode: "host"
     environment:
       - BROKER_HOST=10.35.168.87:50051
-    profiles: ["vm2"]
 
   productor_georgiehouse:
     build: .
@@ -54,7 +50,6 @@ services:
     network_mode: "host"
     environment:
       - BROKER_HOST=10.35.168.87:50051
-    profiles: ["vm2"]
 
   db3:
     build: .
@@ -66,7 +61,6 @@ services:
       - DB1_HOST=10.35.168.90:50052
       - DB2_HOST=10.35.168.89:50053
       - DB3_HOST=10.35.168.88:50054
-    profiles: ["vm2"]
 
   # ==========================================
   # MÁQUINA VIRTUAL 3 (MV3 - Consumidores y DB2)
@@ -78,7 +72,6 @@ services:
     network_mode: "host"
     environment:
       - BROKER_HOST=10.35.168.87:50051
-    profiles: ["vm3"]
     volumes:
       - .:/app
 
@@ -89,7 +82,6 @@ services:
     network_mode: "host"
     environment:
       - BROKER_HOST=10.35.168.87:50051
-    profiles: ["vm3"]
     volumes:
       - .:/app
 
@@ -103,7 +95,6 @@ services:
       - DB1_HOST=10.35.168.90:50052
       - DB2_HOST=10.35.168.89:50053
       - DB3_HOST=10.35.168.88:50054
-    profiles: ["vm3"]
 
   # ==========================================
   # MÁQUINA VIRTUAL 4 (MV4 - Banco y DB1)
@@ -115,7 +106,6 @@ services:
     network_mode: "host"
     environment:
       - BROKER_HOST=10.35.168.87:50051
-    profiles: ["vm4"]
 
   db1:
     build: .
@@ -127,4 +117,3 @@ services:
       - DB1_HOST=10.35.168.90:50052
       - DB2_HOST=10.35.168.89:50053
       - DB3_HOST=10.35.168.88:50054
-    profiles: ["vm4"]
