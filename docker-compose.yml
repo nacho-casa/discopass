@@ -37,6 +37,13 @@ services:
     network_mode: "host"
     profiles: ["vm2"]
 
+  productor_georgie:
+    build: .
+    container_name: productor_georgie
+    command: go run productor/main.go -nombre="GeorgieHouse" -catalogo="catalogo_eventos_40.json"
+    network_mode: "host"
+    profiles: ["vm2"]
+
   db3:
     build: .
     container_name: nodo_db3
@@ -88,3 +95,5 @@ services:
     command: go run nodo_db/main.go -nombre="DB1" -puerto=":50052"
     network_mode: "host"
     profiles: ["vm4"]
+
+   

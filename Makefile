@@ -34,3 +34,10 @@ docker-VM4:
 # Detiene todos los contenedores activos de todos los perfiles
 clean:
 	docker compose --profile vm1 --profile vm2 --profile vm3 --profile vm4 down
+
+# ==========================================
+# VER LOGS EN TIEMPO REAL
+# ==========================================
+# Muestra la salida en vivo de todos los contenedores activos
+logs:
+	docker compose --profile vm1 --profile vm2 --profile vm3 --profile vm4 logs -f

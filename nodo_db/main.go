@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -21,36 +23,66 @@ type dbServer struct {
 	data map[string][]byte
 }
 
-// WriteData: Recibe datos del Broker y los guarda
 func (s *dbServer) WriteData(ctx context.Context, req *pb.DBWriteRequest) (*pb.DBWriteResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Generamos un ID único basado en el tiempo exacto para no sobreescribir
-	id := fmt.Sprintf("%d", time.Now().UnixNano())
+	id := fmt.Sprintf("%s_%d", req.GetType(), time.Now().UnixNano())
 	s.data[id] = req.GetPayload()
 
-	log.Printf("Dato tipo %s guardado correctamente. (Total en BD: %d registros)\n", req.GetType(), len(s.data))
+	log.Printf("Dato tipo %s guardado correctamente en llave: %s. (Total en BD: %d)\n", req.GetType(), id, len(s.data))
 	return &pb.DBWriteResponse{Success: true}, nil
 }
 
-// SyncData: Otro nodo que se acaba de prender nos pide los datos
 func (s *dbServer) SyncData(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	log.Printf("⚠️ El nodo %s solicitó sincronización. Enviando %d registros...\n", req.GetRequestorId(), len(s.data))
-
-	// Le devolvemos una copia exacta de nuestro mapa
 	return &pb.SyncResponse{Data: s.data}, nil
 }
 
-// recoverData: Lógica para pedir datos a otros nodos al encenderse
+func (s *dbServer) ReadEvents(ctx context.Context, req *pb.EmptyRequest) (*pb.EventList, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var lista []*pb.Event
+	for key, payload := range s.data {
+		if len(key) >= 7 && key[:7] == "EVENTO_" {
+			var ev pb.Event
+			if err := json.Unmarshal(payload, &ev); err == nil {
+				lista = append(lista, &ev)
+			}
+		}
+	}
+	return &pb.EventList{Events: lista}, nil
+}
+
+func (s *dbServer) ReadHistory(ctx context.Context, req *pb.HistoryRequest) (*pb.HistoryResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var ticketsUsuario []*pb.TicketInfo
+	for key, payload := range s.data {
+		if len(key) >= 7 && key[:7] == "TICKET_" {
+			var datosTicket map[string]string
+			if err := json.Unmarshal(payload, &datosTicket); err == nil {
+				if datosTicket["usuario_id"] == req.GetUsuarioId() {
+					ticketsUsuario = append(ticketsUsuario, &pb.TicketInfo{
+						TicketId: datosTicket["ticket_id"],
+						EventoId: datosTicket["evento_id"],
+					})
+				}
+			}
+		}
+	}
+	return &pb.HistoryResponse{Tickets: ticketsUsuario}, nil
+}
+
 func (s *dbServer) recoverData(miNombre string, miPuerto string) {
 	puertosConocidos := []string{":50052", ":50053", ":50054"}
 
 	for _, puerto := range puertosConocidos {
-		// No nos vamos a pedir datos a nosotros mismos
 		if puerto == miPuerto {
 			continue
 		}
@@ -58,7 +90,7 @@ func (s *dbServer) recoverData(miNombre string, miPuerto string) {
 		log.Printf("Intentando conectar con posible nodo en %s para recuperar datos...\n", puerto)
 		conn, err := grpc.NewClient("localhost"+puerto, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			continue // Si no conecta, probamos con el siguiente
+			continue
 		}
 
 		client := pb.NewDatabaseServiceClient(conn)
@@ -67,20 +99,18 @@ func (s *dbServer) recoverData(miNombre string, miPuerto string) {
 		cancel()
 		conn.Close()
 
-		// Si el nodo respondió exitosamente y nos mandó datos
 		if err == nil && res.GetData() != nil {
 			s.mu.Lock()
 			for k, v := range res.GetData() {
-				s.data[k] = v // Copiamos el historial a nuestra memoria local
+				s.data[k] = v
 			}
 			cantidad := len(s.data)
 			s.mu.Unlock()
 
 			log.Printf("✅ ¡SINCRONIZACIÓN EXITOSA! Datos recuperados desde el puerto %s. Total registros: %d\n", puerto, cantidad)
-			return // Con resincronizarnos con 1 solo nodo es suficiente
+			return
 		}
 	}
-
 	log.Println("No se encontraron otros nodos con datos. Iniciando como base de datos en blanco.")
 }
 
@@ -89,7 +119,6 @@ func main() {
 	puertoLocal := flag.String("puerto", ":50052", "Puerto donde escuchará este nodo")
 	flag.Parse()
 
-	// 1. Iniciar servidor gRPC
 	lis, err := net.Listen("tcp", *puertoLocal)
 	if err != nil {
 		log.Fatalf("Error al escuchar en el puerto %s: %v\n", *puertoLocal, err)
@@ -101,7 +130,6 @@ func main() {
 	grpcServer := grpc.NewServer()
 	pb.RegisterDatabaseServiceServer(grpcServer, dbNode)
 
-	// Ejecutar el servidor para escuchar peticiones en segundo plano
 	go func() {
 		log.Printf("Nodo %s iniciado en el puerto %s...\n", *nombreNodo, *puertoLocal)
 		if err := grpcServer.Serve(lis); err != nil {
@@ -109,15 +137,17 @@ func main() {
 		}
 	}()
 
-	// 2. FASE 5: Intentar recuperar datos antes de avisarle al Broker
-	// Damos 2 segundos de gracia para asegurar que el servidor gRPC local levantó
 	time.Sleep(2 * time.Second)
 	dbNode.recoverData(*nombreNodo, *puertoLocal)
 
-	// 3. FASE 1: Registrarse en el Broker Central
-	connBroker, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	brokerHost := os.Getenv("BROKER_HOST")
+	if brokerHost == "" {
+		brokerHost = "localhost:50051"
+	}
+
+	connBroker, err := grpc.NewClient(brokerHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("No se pudo conectar al Broker: %v", err)
+		log.Fatalf("No se pudo conectar al Broker en %s: %v", brokerHost, err)
 	}
 	defer connBroker.Close()
 
@@ -131,6 +161,5 @@ func main() {
 	}
 	log.Printf("Nodo %s registrado oficialmente en el Broker y listo para operar.\n", *nombreNodo)
 
-	// Mantener vivo el programa
 	select {}
 }
